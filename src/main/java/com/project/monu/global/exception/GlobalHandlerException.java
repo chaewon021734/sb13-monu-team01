@@ -5,7 +5,6 @@ import java.util.Collections;
 import java.util.Map;
 import java.util.stream.Collectors;
 import org.springframework.http.ResponseEntity;
-import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -65,25 +64,4 @@ public class GlobalHandlerException {
         .body(errorResponse);
   }
 
-  // 낙관적 락(@Version) 충돌 - 관심사 구독자 수 등 동시 갱신 시 발생
-  // 서비스 계층에서 놓친 경우를 대비한 전역 안전망
-  @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
-  public ResponseEntity<ErrorResponse> handleOptimisticLockingFailureException(
-      ObjectOptimisticLockingFailureException exception
-  ) {
-    ErrorCode errorCode = ErrorCode.INTEREST_CONCURRENT_UPDATE;
-
-    ErrorResponse errorResponse = new ErrorResponse(
-        Instant.now(),
-        errorCode.getCode(),
-        errorCode.getMessage(),
-        Collections.emptyMap(),
-        exception.getClass().getSimpleName(),
-        errorCode.getStatus().value()
-    );
-
-    return ResponseEntity
-        .status(errorCode.getStatus())
-        .body(errorResponse);
-  }
 }

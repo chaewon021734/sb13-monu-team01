@@ -19,7 +19,10 @@ jobs:
   deploy:
     name: Deploy to Amazon ECS
     runs-on: ubuntu-latest
+    if: github.ref_name == 'dev' || github.ref_name == 'main'
     timeout-minutes: 30
+    env:
+      DEPLOY_ENV: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
 
     steps:
       - name: Checkout
@@ -40,11 +43,68 @@ jobs:
       - name: Build application
         run: ./gradlew clean test bootJar --no-daemon
 
+      - name: Select deployment configuration
+        env:
+          DEV_AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          DEV_AWS_REGION: ${{ secrets.AWS_REGION }}
+          DEV_ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+          DEV_ECS_CLUSTER: ${{ secrets.ECS_CLUSTER }}
+          DEV_ECS_SERVICE: ${{ secrets.ECS_SERVICE }}
+          DEV_ECS_TASK_DEFINITION: ${{ secrets.ECS_TASK_DEFINITION }}
+          DEV_ECS_CONTAINER_NAME: ${{ secrets.ECS_CONTAINER_NAME }}
+          PROD_AWS_ROLE_TO_ASSUME: ${{ secrets.PROD_AWS_ROLE_TO_ASSUME }}
+          PROD_AWS_REGION: ${{ secrets.PROD_AWS_REGION }}
+          PROD_ECR_REPOSITORY: ${{ secrets.PROD_ECR_REPOSITORY }}
+          PROD_ECS_CLUSTER: ${{ secrets.PROD_ECS_CLUSTER }}
+          PROD_ECS_SERVICE: ${{ secrets.PROD_ECS_SERVICE }}
+          PROD_ECS_TASK_DEFINITION: ${{ secrets.PROD_ECS_TASK_DEFINITION }}
+          PROD_ECS_CONTAINER_NAME: ${{ secrets.PROD_ECS_CONTAINER_NAME }}
+        run: |
+          if [ "${GITHUB_REF_NAME}" = "main" ]; then
+            {
+              echo "AWS_ROLE_TO_ASSUME=${PROD_AWS_ROLE_TO_ASSUME}"
+              echo "AWS_REGION=${PROD_AWS_REGION}"
+              echo "ECR_REPOSITORY=${PROD_ECR_REPOSITORY}"
+              echo "ECS_CLUSTER=${PROD_ECS_CLUSTER}"
+              echo "ECS_SERVICE=${PROD_ECS_SERVICE}"
+              echo "ECS_TASK_DEFINITION=${PROD_ECS_TASK_DEFINITION}"
+              echo "ECS_CONTAINER_NAME=${PROD_ECS_CONTAINER_NAME}"
+            } >> "$GITHUB_ENV"
+          else
+            {
+              echo "AWS_ROLE_TO_ASSUME=${DEV_AWS_ROLE_TO_ASSUME}"
+              echo "AWS_REGION=${DEV_AWS_REGION}"
+              echo "ECR_REPOSITORY=${DEV_ECR_REPOSITORY}"
+              echo "ECS_CLUSTER=${DEV_ECS_CLUSTER}"
+              echo "ECS_SERVICE=${DEV_ECS_SERVICE}"
+              echo "ECS_TASK_DEFINITION=${DEV_ECS_TASK_DEFINITION}"
+              echo "ECS_CONTAINER_NAME=${DEV_ECS_CONTAINER_NAME}"
+            } >> "$GITHUB_ENV"
+          fi
+
+      - name: Validate deployment configuration
+        run: |
+          required=(
+            AWS_ROLE_TO_ASSUME
+            AWS_REGION
+            ECR_REPOSITORY
+            ECS_CLUSTER
+            ECS_SERVICE
+            ECS_TASK_DEFINITION
+            ECS_CONTAINER_NAME
+          )
+          for name in "${required[@]}"; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing ${name} for ${DEPLOY_ENV} deployment"
+              exit 1
+            fi
+          done
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6.2.3
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
         id: login-ecr
@@ -54,21 +114,21 @@ jobs:
         id: build-image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
-          IMAGE_TAG: ${{ github.sha }}
+          IMAGE_TAG: ${{ env.DEPLOY_ENV }}-${{ github.sha }}
+          IMAGE_LATEST_TAG: ${{ env.DEPLOY_ENV }}-latest
         run: |
           docker build --platform linux/amd64 \
             -t "${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}" \
-            -t "${ECR_REGISTRY}/${ECR_REPOSITORY}:latest" \
+            -t "${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_LATEST_TAG}" \
             .
           docker push "${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
-          docker push "${ECR_REGISTRY}/${ECR_REPOSITORY}:latest"
+          docker push "${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_LATEST_TAG}"
           echo "image=${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Download current ECS task definition
         run: |
           aws ecs describe-task-definition \
-            --task-definition "${{ secrets.ECS_TASK_DEFINITION }}" \
+            --task-definition "${ECS_TASK_DEFINITION}" \
             --query taskDefinition \
             > task-definition.json
 
@@ -77,13 +137,13 @@ jobs:
         uses: aws-actions/amazon-ecs-render-task-definition@v1
         with:
           task-definition: task-definition.json
-          container-name: ${{ secrets.ECS_CONTAINER_NAME }}
+          container-name: ${{ env.ECS_CONTAINER_NAME }}
           image: ${{ steps.build-image.outputs.image }}
 
       - name: Deploy ECS task definition
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2
         with:
           task-definition: ${{ steps.render-task-definition.outputs.task-definition }}
-          service: ${{ secrets.ECS_SERVICE }}
-          cluster: ${{ secrets.ECS_CLUSTER }}
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
           wait-for-service-stability: true
