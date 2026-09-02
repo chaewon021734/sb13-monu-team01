@@ -321,6 +321,32 @@ class ArticleControllerTest {
     }
 
     @Test
+    void 복구할_기사_백업이_없으면_404를_응답한다() throws Exception {
+        // given
+        MockMvc mockMvc = MockMvcBuilders
+                .standaloneSetup(articleController)
+                .setControllerAdvice(new GlobalHandlerException())
+                .build();
+
+        Instant from = Instant.parse("2026-08-20T00:00:00Z");
+        Instant to = Instant.parse("2026-08-21T23:59:59Z");
+
+        when(articleBackupService.restore(from, to))
+                .thenThrow(new BusinessException(ErrorCode.ARTICLE_BACKUP_NOT_FOUND));
+
+        // when & then
+        mockMvc.perform(get("/api/articles/restore")
+                        .param("from", from.toString())
+                        .param("to", to.toString()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("ARTICLE_BACKUP_NOT_FOUND"))
+                .andExpect(jsonPath("$.message").value("기사 백업을 찾을 수 없습니다."))
+                .andExpect(jsonPath("$.status").value(404));
+
+        verify(articleBackupService).restore(from, to);
+    }
+
+    @Test
     void 기사_출처_목록을_조회하면_200을_응답한다() throws Exception {
 
         // given

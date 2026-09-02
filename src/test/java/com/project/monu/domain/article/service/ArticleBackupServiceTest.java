@@ -16,6 +16,8 @@ import com.project.monu.domain.article.repository.ArticleRestoreRepository;
 import com.project.monu.domain.article.repository.ArticleSourceRepository;
 import com.project.monu.domain.interest.entity.Interest;
 import com.project.monu.domain.interest.repository.InterestRepository;
+import com.project.monu.global.exception.BusinessException;
+import com.project.monu.global.exception.ErrorCode;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -204,8 +206,64 @@ class ArticleBackupServiceTest {
 
         // when & then
         assertThatThrownBy(() -> service.restore(restoreDate))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("백업 파일이 없습니다");
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.ARTICLE_BACKUP_NOT_FOUND));
+    }
+
+    @Test
+    @DisplayName("날짜 범위 복구에서 일부 날짜 백업이 없으면 해당 날짜만 건너뛴다")
+    void 날짜_범위_복구에서_일부_날짜_백업이_없으면_해당_날짜만_건너뛴다() {
+        // given
+        LocalDate firstDate = LocalDate.of(2026, 8, 21);
+        LocalDate missingDate = LocalDate.of(2026, 8, 22);
+        LocalDate lastDate = LocalDate.of(2026, 8, 23);
+
+        String firstKey = "article-backups/2026-08-21.jsonl";
+        String missingKey = "article-backups/2026-08-22.jsonl";
+        String lastKey = "article-backups/2026-08-23.jsonl";
+
+        ArticleBackup firstBackup = ArticleBackup.create(firstDate, "local", firstKey, 0L);
+        ArticleBackup lastBackup = ArticleBackup.create(lastDate, "local", lastKey, 0L);
+
+        given(backupStorage.exists(firstKey)).willReturn(true);
+        given(backupStorage.exists(missingKey)).willReturn(false);
+        given(backupStorage.exists(lastKey)).willReturn(true);
+        given(backupStorage.load(firstKey)).willReturn("");
+        given(backupStorage.load(lastKey)).willReturn("");
+        given(articleBackupRepository.findTopByBackupDateOrderByCreatedAtDesc(firstDate))
+                .willReturn(Optional.of(firstBackup));
+        given(articleBackupRepository.findTopByBackupDateOrderByCreatedAtDesc(lastDate))
+                .willReturn(Optional.of(lastBackup));
+
+        // when
+        List<ArticleRestoreResultDto> results = service().restore(
+                Instant.parse("2026-08-20T15:00:00Z"),
+                Instant.parse("2026-08-23T14:59:59Z")
+        );
+
+        // then
+        assertThat(results).hasSize(2);
+        assertThat(results)
+                .extracting(ArticleRestoreResultDto::restoreDate)
+                .containsExactly(
+                        Instant.parse("2026-08-20T15:00:00Z"),
+                        Instant.parse("2026-08-22T15:00:00Z")
+                );
+    }
+
+    @Test
+    @DisplayName("날짜 범위 복구에서 복구 가능한 백업이 하나도 없으면 404 예외를 던진다")
+    void 날짜_범위_복구에서_복구_가능한_백업이_하나도_없으면_예외를_던진다() {
+        // given
+        given(backupStorage.exists("article-backups/2026-08-21.jsonl")).willReturn(false);
+        given(backupStorage.exists("article-backups/2026-08-22.jsonl")).willReturn(false);
+
+        // when & then
+        assertThatThrownBy(() -> service().restore(
+                Instant.parse("2026-08-20T15:00:00Z"),
+                Instant.parse("2026-08-22T14:59:59Z")
+        )).isInstanceOfSatisfying(BusinessException.class, exception ->
+                assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.ARTICLE_BACKUP_NOT_FOUND));
     }
 
     private ArticleBackupService service() {

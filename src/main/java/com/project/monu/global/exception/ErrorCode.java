@@ -70,6 +70,12 @@ public enum ErrorCode {
           "기사를 찾을 수 없습니다."
   ),
 
+  ARTICLE_BACKUP_NOT_FOUND(
+          HttpStatus.NOT_FOUND,
+          "ARTICLE_BACKUP_NOT_FOUND",
+          "기사 백업을 찾을 수 없습니다."
+  ),
+
   /*
    * 관심사 관리 - 관심사 등록
    * 기존 관심사와 80% 이상 유사한 이름으로 등록을 시도한 경우 사용합니다.

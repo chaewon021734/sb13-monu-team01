@@ -16,7 +16,10 @@ import com.project.monu.domain.article.repository.ArticleRestoreRepository;
 import com.project.monu.domain.article.repository.ArticleSourceRepository;
 import com.project.monu.domain.interest.entity.Interest;
 import com.project.monu.domain.interest.repository.InterestRepository;
+import com.project.monu.global.exception.BusinessException;
+import com.project.monu.global.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.core.JacksonException;
@@ -33,6 +36,7 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ArticleBackupService {
 
     // 저장소 key는 로컬 파일 경로와 S3 object key에서 같은 규칙으로 사용합니다.
@@ -102,16 +106,29 @@ public class ArticleBackupService {
     @Transactional
     public List<ArticleRestoreResultDto> restore(Instant from, Instant to) {
         if (from.isAfter(to)) {
-            throw new IllegalArgumentException("복구 시작일은 종료일보다 늦을 수 없습니다.");
+            throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE);
         }
 
         LocalDate currentDate = from.atZone(BACKUP_ZONE).toLocalDate();
         LocalDate endDate = to.atZone(BACKUP_ZONE).toLocalDate();
         List<ArticleRestoreResultDto> results = new ArrayList<>();
+        int skippedBackupCount = 0;
 
         while (!currentDate.isAfter(endDate)) {
-            results.add(restore(currentDate));
+            try {
+                results.add(restore(currentDate));
+            } catch (BusinessException e) {
+                if (e.getErrorCode() != ErrorCode.ARTICLE_BACKUP_NOT_FOUND) {
+                    throw e;
+                }
+                skippedBackupCount++;
+                log.info("복구할 기사 백업이 없어 해당 날짜를 건너뜁니다. date={}", currentDate);
+            }
             currentDate = currentDate.plusDays(1);
+        }
+
+        if (results.isEmpty() && skippedBackupCount > 0) {
+            throw new BusinessException(ErrorCode.ARTICLE_BACKUP_NOT_FOUND);
         }
 
         return results;
@@ -129,12 +146,12 @@ public class ArticleBackupService {
 
         // 백업 파일이 없으면 복구 기준 데이터가 없다는 뜻이므로, 조용히 넘어가지 않고 실패로 알립니다.
         if (!backupStorage.exists(key)) {
-            throw new IllegalArgumentException("백업 파일이 없습니다: " + key);
+            throw new BusinessException(ErrorCode.ARTICLE_BACKUP_NOT_FOUND);
         }
 
         // 복구 이력은 어떤 백업 이력을 기준으로 복구했는지 남겨야 하므로, 해당 날짜의 최신 백업 이력을 찾습니다.
         ArticleBackup backup = articleBackupRepository.findTopByBackupDateOrderByCreatedAtDesc(date)
-                .orElseThrow(() -> new IllegalArgumentException("백업 이력이 없습니다: " + date));
+                .orElseThrow(() -> new BusinessException(ErrorCode.ARTICLE_BACKUP_NOT_FOUND));
 
         // JSONL은 줄 단위 파일이라 빈 줄은 무시하고, 나머지 줄을 ArticleBackupRecord로 복원합니다.
         List<ArticleBackupRecord> records = Arrays.stream(backupStorage.load(key).split("\\R"))
