@@ -19,6 +19,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.data.domain.Pageable;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -109,8 +110,10 @@ class NotificationServiceTest {
         Notification firstNotification = createNotification(userId);
         Notification secondNotification = createNotification(userId);
 
-        when(notificationRepository.findByUserIdAndConfirmedFalseOrderByCreatedAtDesc(userId))
-                .thenReturn(List.of(firstNotification, secondNotification));
+        when(notificationRepository.findByUserIdAndConfirmedFalseOrderByCreatedAtDesc(
+                eq(userId),
+                any(Pageable.class)
+        )).thenReturn(List.of(firstNotification, secondNotification));
 
         CursorPageResponse<NotificationResponse> response =
                 notificationService.getNotifications(userId, 10);
@@ -124,8 +127,10 @@ class NotificationServiceTest {
     void limit이_0보다_작거나_같으면_기본값_10으로_조회한다() {
         UUID userId = UUID.randomUUID();
 
-        when(notificationRepository.findByUserIdAndConfirmedFalseOrderByCreatedAtDesc(userId))
-                .thenReturn(List.of());
+        when(notificationRepository.findByUserIdAndConfirmedFalseOrderByCreatedAtDesc(
+                eq(userId),
+                any(Pageable.class)
+        )).thenReturn(List.of());
 
         CursorPageResponse<NotificationResponse> response =
                 notificationService.getNotifications(userId, 0);
@@ -140,8 +145,10 @@ class NotificationServiceTest {
     void limit이_100보다_크면_최대값_100으로_조회한다() {
         UUID userId = UUID.randomUUID();
 
-        when(notificationRepository.findByUserIdAndConfirmedFalseOrderByCreatedAtDesc(userId))
-                .thenReturn(List.of());
+        when(notificationRepository.findByUserIdAndConfirmedFalseOrderByCreatedAtDesc(
+                eq(userId),
+                any(Pageable.class)
+        )).thenReturn(List.of());
 
         CursorPageResponse<NotificationResponse> response =
                 notificationService.getNotifications(userId, 1000);

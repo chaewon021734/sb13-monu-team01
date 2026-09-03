@@ -19,10 +19,11 @@ import java.util.UUID;
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/comments")
-public class CommentController {
+public class CommentController implements CommentApiDocs{
 
     private final CommentService commentService;
 
+    @Override
     @PostMapping
     public ResponseEntity<CommentDto> create(
             @Valid @RequestBody CommentCreateRequest request) {
@@ -34,6 +35,7 @@ public class CommentController {
                 .body(comment);
     }
 
+    @Override
     @GetMapping
     public ResponseEntity<CursorPageResponse<CommentDto>> getComments(
             @RequestParam(required = false) UUID articleId,
@@ -57,6 +59,7 @@ public class CommentController {
         return ResponseEntity.ok(comments);
     }
 
+    @Override
     @PatchMapping("/{commentId}")
     public ResponseEntity<CommentDto> update(
             @PathVariable UUID commentId,
@@ -68,6 +71,7 @@ public class CommentController {
         return ResponseEntity.ok(comment);
     }
 
+    @Override
     @DeleteMapping("/{commentId}")
     public ResponseEntity<Void> delete(@PathVariable UUID commentId) {
         commentService.delete(commentId);
@@ -75,12 +79,14 @@ public class CommentController {
         return ResponseEntity.noContent().build();
     }
 
+    @Override
     @DeleteMapping("/{commentId}/hard")
     public ResponseEntity<Void> hardDelete(@PathVariable UUID commentId) {
         commentService.hardDelete(commentId);
         return ResponseEntity.noContent().build();
     }
 
+    @Override
     @PostMapping("/{commentId}/comment-likes")
     public ResponseEntity<CommentLikeDto> like(
             @PathVariable UUID commentId,
@@ -90,6 +96,7 @@ public class CommentController {
         return ResponseEntity.ok(commentLike);
     }
 
+    @Override
     @DeleteMapping("/{commentId}/comment-likes")
     public ResponseEntity<Void> unlike(
             @PathVariable UUID commentId,

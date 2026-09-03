@@ -1,7 +1,10 @@
 package com.project.monu.domain.batch.controller;
 
 import com.project.monu.domain.batch.config.ArticleRestoreJobConfig;
+import org.springframework.batch.core.BatchStatus;
+import org.springframework.batch.core.ExitStatus;
 import org.springframework.batch.core.job.Job;
+import org.springframework.batch.core.job.JobExecution;
 import org.springframework.batch.core.job.parameters.JobParameters;
 import org.springframework.batch.core.job.parameters.JobParametersBuilder;
 import org.springframework.batch.core.launch.JobOperator;
@@ -68,7 +71,7 @@ public class BatchController {
                 .addLong("timestamp", System.currentTimeMillis())
                 .toJobParameters();
 
-        jobOperator.start(articleCollectJob, params);
+        startJob(articleCollectJob, params, "기사 수집 배치 실행에 실패했습니다.");
         return "기사 수집 배치 실행 완료";
     }
 
@@ -83,7 +86,7 @@ public class BatchController {
                 .addLong("timestamp", System.currentTimeMillis())
                 .toJobParameters();
 
-        jobOperator.start(articleBackupJob, params);
+        startJob(articleBackupJob, params, "기사 백업 배치 실행에 실패했습니다.");
         return "기사 백업 배치 실행 완료";
     }
 
@@ -102,8 +105,23 @@ public class BatchController {
                 .addLong("timestamp", System.currentTimeMillis())
                 .toJobParameters();
 
-        jobOperator.start(articleRestoreJob, params);
+        startJob(articleRestoreJob, params, "기사 복구 배치 실행에 실패했습니다.");
         return "기사 복구 배치 실행 완료";
+    }
+
+    private void startJob(Job job, JobParameters params, String failureMessage) throws Exception {
+        JobExecution execution = jobOperator.start(job, params);
+        BatchStatus status = execution.getStatus();
+
+        if (status.isUnsuccessful()) {
+            ExitStatus exitStatus = execution.getExitStatus();
+            String exitDescription = exitStatus == null ? "" : exitStatus.getExitDescription();
+            String reason = exitDescription == null || exitDescription.isBlank()
+                    ? status.name()
+                    : exitDescription;
+
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, failureMessage + " " + reason);
+        }
     }
 
     private void validateManualBatchSecret(String batchSecret) {

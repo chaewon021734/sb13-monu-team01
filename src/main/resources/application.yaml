@@ -18,3 +18,12 @@ management:
     web:
       exposure:
         include: health, info, metrics
+
+aws:
+  s3:
+    region: ${AWS_REGION:ap-northeast-2}
+
+naver:
+  api:
+    client-id: ${NAVER_CLIENT_ID:test-client-id}
+    client-secret: ${NAVER_CLIENT_SECRET:test-client-secret}

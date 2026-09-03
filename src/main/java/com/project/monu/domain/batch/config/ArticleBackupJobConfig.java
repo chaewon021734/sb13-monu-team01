@@ -1,7 +1,9 @@
 package com.project.monu.domain.batch.config;
 
+import com.project.monu.domain.article.dto.response.ArticleBackupResultDto;
 import com.project.monu.domain.article.service.ArticleBackupService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.batch.core.job.Job;
 import org.springframework.batch.core.job.builder.JobBuilder;
 import org.springframework.batch.core.repository.JobRepository;
@@ -19,6 +21,7 @@ import java.time.ZoneId;
 @Configuration
 @ConditionalOnProperty(name = "batch.enabled", havingValue = "true")
 @RequiredArgsConstructor
+@Slf4j
 public class ArticleBackupJobConfig {
 
     private static final ZoneId BACKUP_ZONE = ZoneId.of("Asia/Seoul");
@@ -42,7 +45,13 @@ public class ArticleBackupJobConfig {
                 .tasklet((contribution, chunkContext) -> {
                     // 수집 배치가 하루 중 여러 번 돌 수 있으므로, 안정적으로 확정된 전날 기사를 백업합니다.
                     LocalDate backupDate = LocalDate.now(BACKUP_ZONE).minusDays(1);
-                    articleBackupService.backup(backupDate);
+                    ArticleBackupResultDto result = articleBackupService.backup(backupDate);
+                    log.info(">>> 기사 백업 완료 date={}, storage={}, key={}, articleCount={}",
+                            result.backupDate(),
+                            result.storage(),
+                            result.key(),
+                            result.articleCount()
+                    );
                     return RepeatStatus.FINISHED;
                 }, txManager)
                 .build();

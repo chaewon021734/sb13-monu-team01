@@ -74,7 +74,7 @@ class CommentRepositoryCustomImplTest {
 
         // then
         assertThat(result)
-                .extracting(queryResult -> queryResult.comment().getId())
+                .extracting(CommentQueryResult::id)
                 .containsExactlyElementsOf(expectedIds);
     }
 
@@ -112,7 +112,7 @@ class CommentRepositoryCustomImplTest {
 
         // then
         assertThat(result).hasSize(1);
-        assertThat(result.get(0).comment().getId()).isEqualTo(activeCommentId);
+        assertThat(result.get(0).id()).isEqualTo(activeCommentId);
         assertThat(totalElements).isEqualTo(1L);
     }
 
@@ -158,15 +158,15 @@ class CommentRepositoryCustomImplTest {
         // then
         assertThat(result).hasSize(3);
 
-        assertThat(result.get(0).comment().getId()).isEqualTo(mostLikedId);
+        assertThat(result.get(0).id()).isEqualTo(mostLikedId);
         assertThat(result.get(0).likeCount()).isEqualTo(3L);
         assertThat(result.get(0).likedByMe()).isTrue();
 
-        assertThat(result.get(1).comment().getId()).isEqualTo(likedOnceId);
+        assertThat(result.get(1).id()).isEqualTo(likedOnceId);
         assertThat(result.get(1).likeCount()).isEqualTo(1L);
         assertThat(result.get(1).likedByMe()).isFalse();
 
-        assertThat(result.get(2).comment().getId()).isEqualTo(noLikeId);
+        assertThat(result.get(2).id()).isEqualTo(noLikeId);
         assertThat(result.get(2).likeCount()).isZero();
         assertThat(result.get(2).likedByMe()).isFalse();
     }
@@ -245,7 +245,7 @@ class CommentRepositoryCustomImplTest {
 
         // then
         assertThat(result)
-                .extracting(queryResult -> queryResult.comment().getId())
+                .extracting(CommentQueryResult::id)
                 .containsExactlyElementsOf(expectedIds);
     }
 
@@ -305,7 +305,7 @@ class CommentRepositoryCustomImplTest {
 
         // then
         assertThat(result)
-                .extracting(queryResult -> queryResult.comment().getId())
+                .extracting(CommentQueryResult::id)
                 .containsExactly(twoLikesId, oneLikeId);
     }
 

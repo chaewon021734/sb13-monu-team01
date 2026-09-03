@@ -2,6 +2,7 @@ package com.project.monu.global.logging;
 
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Path;
 import java.time.LocalDate;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -24,10 +25,10 @@ class LogArchivePathTest {
         LocalDate logDate = LocalDate.of(2026, 8, 28);
 
         // when & then
-        assertThat(archivePath.sourceFile(logDate).toString())
-                .isEqualTo("logs/monu.2026-08-28.log");
-        assertThat(archivePath.localDestinationFile(logDate).toString())
-                .isEqualTo("build/log-archives/2026/08/28/monu-2026-08-28.log");
+        assertThat(archivePath.sourceFile(logDate))
+                .isEqualTo(Path.of("logs", "monu.2026-08-28.log"));
+        assertThat(archivePath.localDestinationFile(logDate))
+                .isEqualTo(Path.of("build/log-archives", "2026", "08", "28", "monu-2026-08-28.log"));
         assertThat(archivePath.s3Key(logDate))
                 .isEqualTo("app-logs/2026/08/28/monu-2026-08-28.log");
     }

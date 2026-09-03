@@ -27,8 +27,8 @@ public class ArticleBackupScheduler {
         this.articleBackupJob = articleBackupJob;
     }
 
-    // 매일 새벽 1시에 전날 기사 데이터를 백업합니다.
-    @Scheduled(cron = "0 0 1 * * *", zone = "Asia/Seoul")
+    // 매일 새벽 1시 30분에 전날 기사 데이터를 백업합니다.
+    @Scheduled(cron = "0 30 1 * * *", zone = "Asia/Seoul")
     public void runBackupJob() {
         try {
             // 같은 JobInstance 재실행 오류를 피하려고 스케줄 실행마다 timestamp를 새로 넣습니다.
