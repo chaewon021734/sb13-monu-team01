@@ -151,6 +151,81 @@ class ArticleControllerTest {
     }
 
     @Test
+    void 빈_관심사와_타임존_없는_발행일_필터를_조회조건으로_변환한다() throws Exception {
+        // given
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(articleController).build();
+
+        UUID userId = UUID.randomUUID();
+
+        when(articleService.getArticles(any(ArticleSearchCondition.class), eq(userId)))
+                .thenReturn(CursorPageResponse.of(List.of(), null, null, 10, 0L, false));
+
+        // when
+        mockMvc.perform(get("/api/articles")
+                        .param("keyword", "")
+                        .param("interestId", "")
+                        .param("publishDateFrom", "2026-06-03T00:00:00")
+                        .param("publishDateTo", "2026-09-01T23:59:59")
+                        .param("orderBy", "publishDate")
+                        .param("direction", "DESC")
+                        .param("limit", "10")
+                        .header("MoNew-Request-User-ID", userId.toString()))
+                .andExpect(status().isOk());
+
+        // then
+        ArgumentCaptor<ArticleSearchCondition> conditionCaptor = ArgumentCaptor.forClass(ArticleSearchCondition.class);
+        verify(articleService).getArticles(conditionCaptor.capture(), eq(userId));
+
+        ArticleSearchCondition condition = conditionCaptor.getValue();
+
+        assertThat(condition.interestId()).isNull();
+        assertThat(condition.publishDateFrom()).isEqualTo(Instant.parse("2026-06-02T15:00:00Z"));
+        assertThat(condition.publishDateTo()).isEqualTo(Instant.parse("2026-09-01T14:59:59Z"));
+    }
+
+    @Test
+    void 날짜만_보낸_발행일_필터는_한국시간_하루_범위로_변환한다() throws Exception {
+        // given
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(articleController).build();
+
+        UUID userId = UUID.randomUUID();
+
+        when(articleService.getArticles(any(ArticleSearchCondition.class), eq(userId)))
+                .thenReturn(CursorPageResponse.of(List.of(), null, null, 10, 0L, false));
+
+        // when
+        mockMvc.perform(get("/api/articles")
+                        .param("publishDateFrom", "2026-09-02")
+                        .param("publishDateTo", "2026-09-02")
+                        .header("MoNew-Request-User-ID", userId.toString()))
+                .andExpect(status().isOk());
+
+        // then
+        ArgumentCaptor<ArticleSearchCondition> conditionCaptor = ArgumentCaptor.forClass(ArticleSearchCondition.class);
+        verify(articleService).getArticles(conditionCaptor.capture(), eq(userId));
+
+        ArticleSearchCondition condition = conditionCaptor.getValue();
+
+        assertThat(condition.publishDateFrom()).isEqualTo(Instant.parse("2026-09-01T15:00:00Z"));
+        assertThat(condition.publishDateTo()).isEqualTo(Instant.parse("2026-09-02T14:59:59.999999999Z"));
+    }
+
+    @Test
+    void 잘못된_관심사_ID는_400을_응답한다() throws Exception {
+        // given
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(articleController).build();
+        UUID userId = UUID.randomUUID();
+
+        // when & then
+        mockMvc.perform(get("/api/articles")
+                        .param("interestId", "invalid-interest-id")
+                        .header("MoNew-Request-User-ID", userId.toString()))
+                .andExpect(status().isBadRequest());
+
+        verify(articleService, never()).getArticles(any(ArticleSearchCondition.class), any(UUID.class));
+    }
+
+    @Test
     void 선택_파라미터가_없으면_기본_정렬과_기본_size를_사용한다() throws Exception {
         // given
         MockMvc mockMvc = MockMvcBuilders.standaloneSetup(articleController).build();
@@ -316,6 +391,28 @@ class ArticleControllerTest {
                 .andExpect(jsonPath("$[0].restoreDate").value("2026-08-20T15:00:00Z"))
                 .andExpect(jsonPath("$[0].restoredArticleIds[0]").value(restoredArticleId.toString()))
                 .andExpect(jsonPath("$[0].restoredArticleCount").value(1));
+
+        verify(articleBackupService).restore(from, to);
+    }
+
+    @Test
+    void 타임존_없는_복구_기간을_한국시간_기준으로_변환한다() throws Exception {
+        // given
+        MockMvc mockMvc = MockMvcBuilders
+                .standaloneSetup(articleController)
+                .build();
+
+        Instant from = Instant.parse("2024-12-31T15:00:00Z");
+        Instant to = Instant.parse("2025-02-01T14:59:59Z");
+
+        when(articleBackupService.restore(from, to))
+                .thenReturn(List.of());
+
+        // when & then
+        mockMvc.perform(get("/api/articles/restore")
+                        .param("from", "2025-01-01T00:00:00")
+                        .param("to", "2025-02-01T23:59:59"))
+                .andExpect(status().isOk());
 
         verify(articleBackupService).restore(from, to);
     }

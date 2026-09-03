@@ -17,6 +17,11 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeParseException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
@@ -25,6 +30,8 @@ import java.util.UUID;
 @RequiredArgsConstructor
 @RequestMapping("/api/articles")
 public class ArticleController {
+
+    private static final ZoneId ARTICLE_FILTER_ZONE = ZoneId.of("Asia/Seoul");
 
     private final ArticleService articleService;
     private final ArticleBackupService articleBackupService;
@@ -39,14 +46,10 @@ public class ArticleController {
     @GetMapping
     public CursorPageResponse<ArticleDto> getArticles(
             @RequestParam(required = false) String keyword,
-            @RequestParam(required = false) UUID interestId,
+            @RequestParam(required = false) String interestId,
             @RequestParam(required = false) List<String> sourceIn,
-            @RequestParam(required = false)
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
-            Instant publishDateFrom,
-            @RequestParam(required = false)
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
-            Instant publishDateTo,
+            @RequestParam(required = false) String publishDateFrom,
+            @RequestParam(required = false) String publishDateTo,
             @RequestParam(defaultValue = "publishDate") String orderBy,
             @RequestParam(defaultValue = "DESC") Sort.Direction direction,
             @RequestParam(required = false)
@@ -61,10 +64,10 @@ public class ArticleController {
     ) {
         ArticleSearchCondition condition = new ArticleSearchCondition(
                 keyword,
-                interestId,
+                parseInterestId(interestId),
                 normalizeSourceIn(sourceIn),
-                publishDateFrom,
-                publishDateTo,
+                parsePublishDateFrom(publishDateFrom),
+                parsePublishDateTo(publishDateTo),
                 parseOrderBy(orderBy),
                 direction,
                 after,
@@ -73,6 +76,71 @@ public class ArticleController {
         );
 
         return articleService.getArticles(condition, userId);
+    }
+
+    private UUID parseInterestId(String interestId) {
+        if (interestId == null || interestId.isBlank()) {
+            return null;
+        }
+
+        try {
+            return UUID.fromString(interestId.trim());
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "interestId 형식이 올바르지 않습니다.");
+        }
+    }
+
+    private Instant parsePublishDateFrom(String value) {
+        return parseOptionalDateFilter(value, true, "publishDateFrom");
+    }
+
+    private Instant parsePublishDateTo(String value) {
+        return parseOptionalDateFilter(value, false, "publishDateTo");
+    }
+
+    private Instant parseRequiredDateFilter(String value, boolean startOfDay, String parameterName) {
+        if (value == null || value.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, parameterName + "은 필수입니다.");
+        }
+
+        return parseDateFilter(value, startOfDay, parameterName);
+    }
+
+    private Instant parseOptionalDateFilter(String value, boolean startOfDay, String parameterName) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+
+        return parseDateFilter(value, startOfDay, parameterName);
+    }
+
+    private Instant parseDateFilter(String value, boolean startOfDay, String parameterName) {
+        String trimmed = value.trim();
+
+        try {
+            return Instant.parse(trimmed);
+        } catch (DateTimeParseException ignored) {
+        }
+
+        try {
+            return OffsetDateTime.parse(trimmed).toInstant();
+        } catch (DateTimeParseException ignored) {
+        }
+
+        try {
+            return LocalDateTime.parse(trimmed).atZone(ARTICLE_FILTER_ZONE).toInstant();
+        } catch (DateTimeParseException ignored) {
+        }
+
+        try {
+            LocalDate date = LocalDate.parse(trimmed);
+            if (startOfDay) {
+                return date.atStartOfDay(ARTICLE_FILTER_ZONE).toInstant();
+            }
+            return date.plusDays(1).atStartOfDay(ARTICLE_FILTER_ZONE).toInstant().minusNanos(1);
+        } catch (DateTimeParseException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, parameterName + " 형식이 올바르지 않습니다.");
+        }
     }
 
     private ArticleSortType parseOrderBy(String orderBy) {
@@ -111,18 +179,17 @@ public class ArticleController {
 
     @GetMapping("/restore")
     public List<ArticleRestoreResultDto> restoreArticles(
-            @RequestParam
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
-            Instant from,
-            @RequestParam
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
-            Instant to
+            @RequestParam String from,
+            @RequestParam String to
     ) {
-        if (from.isAfter(to)) {
+        Instant restoreFrom = parseRequiredDateFilter(from, true, "from");
+        Instant restoreTo = parseRequiredDateFilter(to, false, "to");
+
+        if (restoreFrom.isAfter(restoreTo)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "from은 to보다 늦을 수 없습니다.");
         }
 
-        return articleBackupService.restore(from, to);
+        return articleBackupService.restore(restoreFrom, restoreTo);
     }
 
     @GetMapping("/sources")

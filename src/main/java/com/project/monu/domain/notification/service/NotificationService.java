@@ -12,6 +12,8 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
+
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -51,7 +53,10 @@ public class NotificationService {
         int pageSize = normalizePageSize(size);
 
         List<Notification> notifications =
-                notificationRepository.findByUserIdAndConfirmedFalseOrderByCreatedAtDesc(requestUserId);
+                notificationRepository.findByUserIdAndConfirmedFalseOrderByCreatedAtDesc(
+                        requestUserId,
+                        PageRequest.of(0, pageSize + 1)
+                );
 
         boolean hasNext = notifications.size() > pageSize;
 
@@ -72,7 +77,7 @@ public class NotificationService {
                 hasNext && lastNotification != null ? lastNotification.getId().toString() : null,
                 hasNext && lastNotification != null ? lastNotification.getCreatedAt() : null,
                 pageSize,
-                notifications.size(),
+                content.size(),
                 hasNext
         );
     }

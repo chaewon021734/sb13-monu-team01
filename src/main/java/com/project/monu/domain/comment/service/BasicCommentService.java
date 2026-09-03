@@ -14,13 +14,16 @@ import com.project.monu.domain.comment.exception.InvalidCommentSortDirectionExce
 import com.project.monu.domain.comment.repository.CommentLikeRepository;
 import com.project.monu.domain.comment.repository.CommentQueryResult;
 import com.project.monu.domain.comment.repository.CommentRepository;
+import com.project.monu.domain.notification.entity.NotificationResourceType;
 import com.project.monu.domain.notification.event.CommentLikedEvent;
+import com.project.monu.domain.notification.repository.NotificationRepository;
 import com.project.monu.domain.users.entity.User;
 import com.project.monu.domain.users.repository.UserRepository;
 import com.project.monu.global.dto.CursorPageResponse;
 import com.project.monu.global.exception.BusinessException;
 import com.project.monu.global.exception.ErrorCode;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Sort;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.stereotype.Service;
@@ -39,6 +42,7 @@ public class BasicCommentService implements CommentService {
     private final ArticleRepository articleRepository;
     private final UserRepository userRepository;
     private final ApplicationEventPublisher eventPublisher;
+    private final NotificationRepository notificationRepository;
 
     @Transactional
     @Override
@@ -77,14 +81,18 @@ public class BasicCommentService implements CommentService {
 
         comment.updateContent(request.content());
 
+        long likeCount = commentLikeRepository.countByComment_Id(commentId);
+        boolean likedByMe = commentLikeRepository
+                .existsByComment_IdAndLikedBy_Id(commentId, requestUserId);
+
         return new CommentDto(
                 comment.getId(),
                 comment.getArticle().getId(),
                 comment.getUser().getId(),
                 comment.getUser().getNickname(),
                 comment.getContent(),
-                0L,
-                false,
+                likeCount,
+                likedByMe,
                 comment.getCreatedAt()
         );
     }
@@ -108,6 +116,8 @@ public class BasicCommentService implements CommentService {
             comment.getArticle().decreaseCommentCount();
         }
 
+        notificationRepository.deleteAllByResourceTypeAndResourceIdIn(
+                NotificationResourceType.COMMENT, List.of(commentId));
         commentLikeRepository.deleteAllByComment_Id(commentId);
         commentRepository.delete(comment);
     }
@@ -120,6 +130,13 @@ public class BasicCommentService implements CommentService {
         comments.stream()
                 .filter(comment -> comment.getDeletedAt() == null)
                 .forEach(comment -> comment.getArticle().decreaseCommentCount());
+
+        List<UUID> commentIds = comments.stream().map(Comment::getId).toList();
+
+        if (!commentIds.isEmpty()) {
+            notificationRepository.deleteAllByResourceTypeAndResourceIdIn(
+                    NotificationResourceType.COMMENT, commentIds);
+        }
 
         commentLikeRepository.deleteAllByComment_User_Id(userId);
         commentLikeRepository.deleteAllByLikedBy_Id(userId);
@@ -139,8 +156,12 @@ public class BasicCommentService implements CommentService {
             throw new BusinessException(ErrorCode.COMMENT_LIKE_ALREADY_EXISTS);
         }
 
-        CommentLike commentLike = new CommentLike(comment, user);
-        CommentLike savedLike = commentLikeRepository.save(commentLike);
+        CommentLike savedLike;
+        try {
+            savedLike = commentLikeRepository.saveAndFlush(new CommentLike(comment, user));
+        } catch (DataIntegrityViolationException e) {
+            throw new BusinessException(ErrorCode.COMMENT_LIKE_ALREADY_EXISTS);
+        }
 
         long likeCount = commentLikeRepository.countByComment_Id(commentId);
 
@@ -220,20 +241,16 @@ public class BasicCommentService implements CommentService {
                 .toList();
 
         List<CommentDto> content = pageResults.stream()
-                .map(result -> {
-                    Comment comment = result.comment();
-
-                    return new CommentDto(
-                            comment.getId(),
-                            comment.getArticle().getId(),
-                            comment.getUser().getId(),
-                            comment.getUser().getNickname(),
-                            comment.getContent(),
-                            result.likeCount(),
-                            result.likedByMe(),
-                            comment.getCreatedAt()
-                    );
-                })
+                .map(result -> new CommentDto(
+                        result.id(),
+                        result.articleId(),
+                        result.userId(),
+                        result.userNickname(),
+                        result.content(),
+                        result.likeCount(),
+                        result.likedByMe(),
+                        result.createdAt()
+                ))
                 .toList();
 
         long totalElements = commentRepository.countByCondition(condition);
@@ -245,7 +262,7 @@ public class BasicCommentService implements CommentService {
             CommentQueryResult lastResult = pageResults.get(pageResults.size() - 1);
 
             nextCursor = createNextCursor(lastResult, sortType);
-            nextAfter = lastResult.comment().getCreatedAt();
+            nextAfter = lastResult.createdAt();
         }
 
         return CursorPageResponse.of(
@@ -270,11 +287,11 @@ public class BasicCommentService implements CommentService {
             CommentSortType sortType
     ) {
         String value = switch (sortType) {
-            case CREATED_AT -> result.comment().getCreatedAt().toString();
+            case CREATED_AT -> result.createdAt().toString();
             case LIKE_COUNT -> String.valueOf(result.likeCount());
         };
 
-        return value + "_" + result.comment().getId();
+        return value + "_" + result.id();
     }
 
 

@@ -1,14 +1,17 @@
 package com.project.monu.domain.comment.repository;
 
+import com.project.monu.domain.article.entity.QArticle;
 import com.project.monu.domain.comment.dto.request.CommentSearchCondition;
 import com.project.monu.domain.comment.entity.QComment;
 import com.project.monu.domain.comment.entity.QCommentLike;
 import com.project.monu.domain.comment.exception.InvalidCommentCursorException;
+import com.project.monu.domain.users.entity.QUser;
 import com.querydsl.core.Tuple;
 import com.querydsl.core.types.OrderSpecifier;
 import com.querydsl.core.types.dsl.BooleanExpression;
+import com.querydsl.core.types.dsl.Expressions;
 import com.querydsl.core.types.dsl.NumberExpression;
-import com.querydsl.jpa.impl.JPAQuery;
+import com.querydsl.jpa.JPAExpressions;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
@@ -21,27 +24,39 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class CommentRepositoryCustomImpl implements CommentRepositoryCustom {
 
+    private static final QComment comment = QComment.comment;
+    private static final QArticle article = QArticle.article;
+    private static final QUser user = QUser.user;
+    private static final QCommentLike myLike = new QCommentLike("myLike");
+    private static final QCommentLike likeCounter = new QCommentLike("likeCounter");
+
+    // 좋아요 수를 서브쿼리로 계산 → groupBy/having 불필요
+    private static final NumberExpression<Long> LIKE_COUNT = Expressions.numberTemplate(
+            Long.class,
+            "{0}",
+            JPAExpressions.select(likeCounter.id.count())
+                    .from(likeCounter)
+                    .where(likeCounter.comment.eq(comment))
+    );
+
     private final JPAQueryFactory queryFactory;
 
     @Override
     public List<CommentQueryResult> searchByCursor(CommentSearchCondition condition) {
-        return switch (condition.sortType()) {
-            case CREATED_AT -> searchByCreatedAt(condition);
-            case LIKE_COUNT -> searchByLikeCount(condition);
-        };
-    }
-
-    private List<CommentQueryResult> searchByCreatedAt(CommentSearchCondition condition) {
-        QComment comment = QComment.comment;
-        QCommentLike commentLike = new QCommentLike("commentLike");
-        QCommentLike myLike = new QCommentLike("myLike");
-
-        NumberExpression<Long> likeCount = commentLike.id.count();
-
         List<Tuple> rows = queryFactory
-                .select(comment, likeCount, myLike.id)
+                .select(
+                        comment.id,
+                        article.id,
+                        user.id,
+                        user.nickname,
+                        comment.content,
+                        LIKE_COUNT,
+                        myLike.id,
+                        comment.createdAt
+                )
                 .from(comment)
-                .leftJoin(commentLike).on(commentLike.comment.eq(comment))
+                .join(comment.article, article)
+                .join(comment.user, user)
                 .leftJoin(myLike).on(
                         myLike.comment.eq(comment)
                                 .and(myLike.likedBy.id.eq(condition.requestUserId()))
@@ -49,54 +64,32 @@ public class CommentRepositoryCustomImpl implements CommentRepositoryCustom {
                 .where(
                         comment.deletedAt.isNull(),
                         articleEq(condition.articleId()),
-                        createdAtCursorCondition(condition)
+                        cursorCondition(condition)
                 )
-                .groupBy(comment, myLike.id)
-                .orderBy(createdAtOrderBy(condition))
+                .orderBy(orderBy(condition))
                 .limit(condition.limit() + 1L)
                 .fetch();
 
-        return toResults(rows, comment, likeCount, myLike);
-    }
+        return rows.stream()
+                .map(row -> {
+                    Long count = row.get(LIKE_COUNT);
 
-    private List<CommentQueryResult> searchByLikeCount(CommentSearchCondition condition) {
-        QComment comment = QComment.comment;
-        QCommentLike commentLike = new QCommentLike("commentLike");
-        QCommentLike myLike = new QCommentLike("myLike");
-
-        NumberExpression<Long> likeCount = commentLike.id.count();
-        BooleanExpression cursorCondition = likeCountCursorCondition(condition, likeCount);
-
-        JPAQuery<Tuple> query = queryFactory
-                .select(comment, likeCount, myLike.id)
-                .from(comment)
-                .leftJoin(commentLike).on(commentLike.comment.eq(comment))
-                .leftJoin(myLike).on(
-                        myLike.comment.eq(comment)
-                                .and(myLike.likedBy.id.eq(condition.requestUserId()))
-                )
-                .where(
-                        comment.deletedAt.isNull(),
-                        articleEq(condition.articleId())
-                )
-                .groupBy(comment, myLike.id);
-
-        if (cursorCondition != null) {
-            query.having(cursorCondition);
-        }
-
-        List<Tuple> rows = query
-                .orderBy(likeCountOrderBy(condition, likeCount))
-                .limit(condition.limit() + 1L)
-                .fetch();
-
-        return toResults(rows, comment, likeCount, myLike);
+                    return new CommentQueryResult(
+                            row.get(comment.id),
+                            row.get(article.id),
+                            row.get(user.id),
+                            row.get(user.nickname),
+                            row.get(comment.content),
+                            count == null ? 0L : count,
+                            row.get(myLike.id) != null,
+                            row.get(comment.createdAt)
+                    );
+                })
+                .toList();
     }
 
     @Override
     public long countByCondition(CommentSearchCondition condition) {
-        QComment comment = QComment.comment;
-
         Long count = queryFactory
                 .select(comment.count())
                 .from(comment)
@@ -110,101 +103,65 @@ public class CommentRepositoryCustomImpl implements CommentRepositoryCustom {
     }
 
     private BooleanExpression articleEq(UUID articleId) {
-        if (articleId == null) {
-            return null;
-        }
-
-        return QComment.comment.article.id.eq(articleId);
+        return articleId == null ? null : comment.article.id.eq(articleId);
     }
 
-    private OrderSpecifier<?>[] createdAtOrderBy(CommentSearchCondition condition) {
-        QComment comment = QComment.comment;
+    private OrderSpecifier<?>[] orderBy(CommentSearchCondition condition) {
         boolean desc = condition.direction().isDescending();
 
-        return desc
-                ? new OrderSpecifier[]{
-                comment.createdAt.desc(),
-                comment.id.desc()
-        }
-                : new OrderSpecifier[]{
-                comment.createdAt.asc(),
-                comment.id.asc()
+        OrderSpecifier<?> createdAt = desc ? comment.createdAt.desc() : comment.createdAt.asc();
+        OrderSpecifier<?> id = desc ? comment.id.desc() : comment.id.asc();
+
+        return switch (condition.sortType()) {
+            case CREATED_AT -> new OrderSpecifier[]{createdAt, id};
+            case LIKE_COUNT -> new OrderSpecifier[]{
+                    desc ? LIKE_COUNT.desc() : LIKE_COUNT.asc(), createdAt, id
+            };
         };
     }
 
-    private OrderSpecifier<?>[] likeCountOrderBy(
-            CommentSearchCondition condition,
-            NumberExpression<Long> likeCount
-    ) {
-        QComment comment = QComment.comment;
-        boolean desc = condition.direction().isDescending();
-
-        return desc
-                ? new OrderSpecifier[]{
-                likeCount.desc(),
-                comment.createdAt.desc(),
-                comment.id.desc()
-        }
-                : new OrderSpecifier[]{
-                likeCount.asc(),
-                comment.createdAt.asc(),
-                comment.id.asc()
-        };
-    }
-
-    private BooleanExpression createdAtCursorCondition(CommentSearchCondition condition) {
+    private BooleanExpression cursorCondition(CommentSearchCondition condition) {
         if (condition.cursor() == null || condition.cursor().isBlank()) {
             return null;
         }
 
-        QComment comment = QComment.comment;
         Cursor cursor = parseCursor(condition.cursor());
+        boolean desc = condition.direction().isDescending();
 
-        Instant cursorCreatedAt;
+        return switch (condition.sortType()) {
+            case CREATED_AT -> createdAtCursor(cursor, desc);
+            case LIKE_COUNT -> likeCountCursor(cursor, desc, condition.after());
+        };
+    }
+
+    private BooleanExpression createdAtCursor(Cursor cursor, boolean desc) {
+        Instant createdAt;
         try {
-            cursorCreatedAt = Instant.parse(cursor.value());
+            createdAt = Instant.parse(cursor.value());
         } catch (Exception e) {
             throw new InvalidCommentCursorException();
         }
 
-        boolean desc = condition.direction().isDescending();
-
-        BooleanExpression idTieBreak =
-                desc ? comment.id.lt(cursor.id()) : comment.id.gt(cursor.id());
+        BooleanExpression tieBreak = idTieBreak(cursor.id(), desc);
 
         return desc
-                ? comment.createdAt.lt(cursorCreatedAt)
-                  .or(comment.createdAt.eq(cursorCreatedAt).and(idTieBreak))
-                : comment.createdAt.gt(cursorCreatedAt)
-                  .or(comment.createdAt.eq(cursorCreatedAt).and(idTieBreak));
+                ? comment.createdAt.lt(createdAt)
+                  .or(comment.createdAt.eq(createdAt).and(tieBreak))
+                : comment.createdAt.gt(createdAt)
+                  .or(comment.createdAt.eq(createdAt).and(tieBreak));
     }
 
-    private BooleanExpression likeCountCursorCondition(
-            CommentSearchCondition condition,
-            NumberExpression<Long> likeCount
-    ) {
-        if (condition.cursor() == null || condition.cursor().isBlank()) {
-            return null;
-        }
-
-        QComment comment = QComment.comment;
-        Cursor cursor = parseCursor(condition.cursor());
-
-        long cursorLikeCount;
+    private BooleanExpression likeCountCursor(Cursor cursor, boolean desc, Instant after) {
+        long likeCount;
         try {
-            cursorLikeCount = Long.parseLong(cursor.value());
+            likeCount = Long.parseLong(cursor.value());
         } catch (NumberFormatException e) {
             throw new InvalidCommentCursorException();
         }
 
-        boolean desc = condition.direction().isDescending();
+        BooleanExpression idTieBreak = idTieBreak(cursor.id(), desc);
 
-        BooleanExpression idTieBreak =
-                desc ? comment.id.lt(cursor.id()) : comment.id.gt(cursor.id());
-
-        Instant after = condition.after();
-
-        BooleanExpression secondaryTieBreak = after == null
+        BooleanExpression tieBreak = after == null
                 ? idTieBreak
                 : desc
                   ? comment.createdAt.lt(after)
@@ -213,10 +170,12 @@ public class CommentRepositoryCustomImpl implements CommentRepositoryCustom {
                     .or(comment.createdAt.eq(after).and(idTieBreak));
 
         return desc
-                ? likeCount.lt(cursorLikeCount)
-                  .or(likeCount.eq(cursorLikeCount).and(secondaryTieBreak))
-                : likeCount.gt(cursorLikeCount)
-                  .or(likeCount.eq(cursorLikeCount).and(secondaryTieBreak));
+                ? LIKE_COUNT.lt(likeCount).or(LIKE_COUNT.eq(likeCount).and(tieBreak))
+                : LIKE_COUNT.gt(likeCount).or(LIKE_COUNT.eq(likeCount).and(tieBreak));
+    }
+
+    private BooleanExpression idTieBreak(UUID cursorId, boolean desc) {
+        return desc ? comment.id.lt(cursorId) : comment.id.gt(cursorId);
     }
 
     private Cursor parseCursor(String cursor) {
@@ -226,37 +185,16 @@ public class CommentRepositoryCustomImpl implements CommentRepositoryCustom {
             throw new InvalidCommentCursorException();
         }
 
-        String valuePart = cursor.substring(0, lastUnderscoreIndex);
-        String idPart = cursor.substring(lastUnderscoreIndex + 1);
-
-        UUID cursorId;
         try {
-            cursorId = UUID.fromString(idPart);
+            return new Cursor(
+                    cursor.substring(0, lastUnderscoreIndex),
+                    UUID.fromString(cursor.substring(lastUnderscoreIndex + 1))
+            );
         } catch (IllegalArgumentException e) {
             throw new InvalidCommentCursorException();
         }
-
-        return new Cursor(valuePart, cursorId);
     }
 
-    private List<CommentQueryResult> toResults(
-            List<Tuple> rows,
-            QComment comment,
-            NumberExpression<Long> likeCount,
-            QCommentLike myLike
-    ) {
-        return rows.stream()
-                .map(row -> new CommentQueryResult(
-                        row.get(comment),
-                        row.get(likeCount) == null ? 0L : row.get(likeCount),
-                        row.get(myLike.id) != null
-                ))
-                .toList();
-    }
-
-    private record Cursor(
-            String value,
-            UUID id
-    ) {
+    private record Cursor(String value, UUID id) {
     }
 }

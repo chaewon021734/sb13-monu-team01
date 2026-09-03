@@ -19,6 +19,8 @@ import com.project.monu.domain.comment.entity.CommentLike;
 import com.project.monu.domain.comment.repository.CommentLikeRepository;
 import com.project.monu.domain.comment.repository.CommentQueryResult;
 import com.project.monu.domain.comment.repository.CommentRepository;
+import com.project.monu.domain.notification.entity.NotificationResourceType;
+import com.project.monu.domain.notification.repository.NotificationRepository;
 import com.project.monu.domain.notification.event.CommentLikedEvent;
 import com.project.monu.domain.users.entity.User;
 import com.project.monu.domain.users.repository.UserRepository;
@@ -34,6 +36,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Sort;
 import org.springframework.context.ApplicationEventPublisher;
 
@@ -57,6 +60,9 @@ class BasicCommentServiceTest {
 
     @Mock
     private ApplicationEventPublisher eventPublisher;
+
+    @Mock
+    private NotificationRepository notificationRepository;
 
     @Test
     void 댓글을_등록한다() {
@@ -278,10 +284,6 @@ class BasicCommentServiceTest {
         UUID requestUserId = UUID.randomUUID();
         Instant createdAt = Instant.parse("2026-08-24T00:00:00Z");
 
-        Comment comment = mock(Comment.class);
-        Article article = mock(Article.class);
-        User user = mock(User.class);
-
         CommentSearchCondition condition = new CommentSearchCondition(
                 articleId,
                 CommentSortType.CREATED_AT,
@@ -292,18 +294,13 @@ class BasicCommentServiceTest {
                 requestUserId
         );
 
-        CommentQueryResult queryResult = new CommentQueryResult(comment, 0L, false);
+        CommentQueryResult queryResult = new CommentQueryResult(
+                commentId, articleId, userId, "댓글테스터",
+                "댓글 내용입니다.", 0L, false, createdAt
+        );
 
         when(commentRepository.searchByCursor(condition)).thenReturn(List.of(queryResult));
         when(commentRepository.countByCondition(condition)).thenReturn(1L);
-        when(comment.getId()).thenReturn(commentId);
-        when(comment.getArticle()).thenReturn(article);
-        when(comment.getUser()).thenReturn(user);
-        when(comment.getContent()).thenReturn("댓글 내용입니다.");
-        when(comment.getCreatedAt()).thenReturn(createdAt);
-        when(article.getId()).thenReturn(articleId);
-        when(user.getId()).thenReturn(userId);
-        when(user.getNickname()).thenReturn("댓글테스터");
 
         // when
         CursorPageResponse<CommentDto> result =
@@ -333,16 +330,13 @@ class BasicCommentServiceTest {
         UUID userId = UUID.randomUUID();
         UUID requestUserId = UUID.randomUUID();
 
-        Comment first = mock(Comment.class);
-        Comment second = mock(Comment.class);
-        Comment third = mock(Comment.class);
-        Article article = mock(Article.class);
-        User user = mock(User.class);
-
         UUID firstId = UUID.randomUUID();
         UUID secondId = UUID.randomUUID();
+        UUID thirdId = UUID.randomUUID();
         Instant firstCreatedAt = Instant.parse("2026-08-24T03:00:00Z");
         Instant secondCreatedAt = Instant.parse("2026-08-24T02:00:00Z");
+        Instant thirdCreatedAt = Instant.parse("2026-08-24T01:00:00Z");
+
         CommentSearchCondition condition = new CommentSearchCondition(
                 articleId,
                 CommentSortType.CREATED_AT,
@@ -354,27 +348,14 @@ class BasicCommentServiceTest {
         );
 
         when(commentRepository.searchByCursor(condition)).thenReturn(List.of(
-                new CommentQueryResult(first, 1L, false),
-                new CommentQueryResult(second, 2L, true),
-                new CommentQueryResult(third, 0L, false)
+                new CommentQueryResult(firstId, articleId, userId, "댓글테스터",
+                        "첫 번째 댓글", 1L, false, firstCreatedAt),
+                new CommentQueryResult(secondId, articleId, userId, "댓글테스터",
+                        "두 번째 댓글", 2L, true, secondCreatedAt),
+                new CommentQueryResult(thirdId, articleId, userId, "댓글테스터",
+                        "세 번째 댓글", 0L, false, thirdCreatedAt)
         ));
         when(commentRepository.countByCondition(condition)).thenReturn(3L);
-
-        when(article.getId()).thenReturn(articleId);
-        when(user.getId()).thenReturn(userId);
-        when(user.getNickname()).thenReturn("댓글테스터");
-
-        when(first.getId()).thenReturn(firstId);
-        when(first.getArticle()).thenReturn(article);
-        when(first.getUser()).thenReturn(user);
-        when(first.getContent()).thenReturn("첫 번째 댓글");
-        when(first.getCreatedAt()).thenReturn(firstCreatedAt);
-
-        when(second.getId()).thenReturn(secondId);
-        when(second.getArticle()).thenReturn(article);
-        when(second.getUser()).thenReturn(user);
-        when(second.getContent()).thenReturn("두 번째 댓글");
-        when(second.getCreatedAt()).thenReturn(secondCreatedAt);
 
         // when
         CursorPageResponse<CommentDto> result =
@@ -397,10 +378,6 @@ class BasicCommentServiceTest {
         UUID requestUserId = UUID.randomUUID();
         Instant createdAt = Instant.parse("2026-08-24T00:00:00Z");
 
-        Comment comment = mock(Comment.class);
-        Article article = mock(Article.class);
-        User user = mock(User.class);
-
         CommentSearchCondition condition = new CommentSearchCondition(
                 articleId,
                 CommentSortType.LIKE_COUNT,
@@ -412,17 +389,11 @@ class BasicCommentServiceTest {
         );
 
         when(commentRepository.searchByCursor(condition))
-                .thenReturn(List.of(new CommentQueryResult(comment, 3L, true)));
+                .thenReturn(List.of(new CommentQueryResult(
+                        commentId, articleId, userId, "댓글테스터",
+                        "좋아요가 있는 댓글", 3L, true, createdAt
+                )));
         when(commentRepository.countByCondition(condition)).thenReturn(1L);
-
-        when(comment.getId()).thenReturn(commentId);
-        when(comment.getArticle()).thenReturn(article);
-        when(comment.getUser()).thenReturn(user);
-        when(comment.getContent()).thenReturn("좋아요가 있는 댓글");
-        when(comment.getCreatedAt()).thenReturn(createdAt);
-        when(article.getId()).thenReturn(articleId);
-        when(user.getId()).thenReturn(userId);
-        when(user.getNickname()).thenReturn("댓글테스터");
 
         // when
         CursorPageResponse<CommentDto> result =
@@ -508,7 +479,7 @@ class BasicCommentServiceTest {
         when(savedLike.getId()).thenReturn(likeId);
         when(savedLike.getCreatedAt()).thenReturn(likeCreatedAt);
 
-        when(commentLikeRepository.save(any(CommentLike.class))).thenReturn(savedLike);
+        when(commentLikeRepository.saveAndFlush(any(CommentLike.class))).thenReturn(savedLike);
         when(commentLikeRepository.countByComment_Id(commentId)).thenReturn(1L);
 
         // when
@@ -526,7 +497,7 @@ class BasicCommentServiceTest {
         assertThat(result.commentLikeCount()).isEqualTo(1L);
         assertThat(result.commentCreatedAt()).isEqualTo(commentCreatedAt);
 
-        verify(commentLikeRepository).save(any(CommentLike.class));
+        verify(commentLikeRepository).saveAndFlush(any(CommentLike.class));
     }
 
     @Test
@@ -591,7 +562,7 @@ class BasicCommentServiceTest {
 
         // then
         assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.COMMENT_LIKE_ALREADY_EXISTS);
-        verify(commentLikeRepository, never()).save(any(CommentLike.class));
+        verify(commentLikeRepository, never()).saveAndFlush(any(CommentLike.class));
     }
 
     @Test
@@ -656,6 +627,8 @@ class BasicCommentServiceTest {
         verify(commentLikeRepository).deleteAllByComment_Id(commentId);
         verify(commentRepository).delete(comment);
         verify(article).decreaseCommentCount();
+        verify(notificationRepository).deleteAllByResourceTypeAndResourceIdIn(
+                NotificationResourceType.COMMENT, List.of(commentId));
     }
 
     @Test
@@ -691,7 +664,7 @@ class BasicCommentServiceTest {
 
         // then
         assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.COMMENT_NOT_FOUND);
-        verifyNoInteractions(commentLikeRepository);
+        verifyNoInteractions(commentLikeRepository, notificationRepository);
     }
 
     @Test
@@ -748,7 +721,7 @@ class BasicCommentServiceTest {
         when(requestUser.getNickname()).thenReturn("좋아요누른사람");
         when(article.getId()).thenReturn(articleId);
 
-        when(commentLikeRepository.save(any(CommentLike.class))).thenReturn(savedLike);
+        when(commentLikeRepository.saveAndFlush(any(CommentLike.class))).thenReturn(savedLike);
 
         // when
         commentService.like(commentId, requestUserId);
@@ -761,4 +734,31 @@ class BasicCommentServiceTest {
                 commentId
         ));
     }
+
+    @Test
+    void 좋아요_저장_중_제약_위반이_발생하면_중복_예외로_변환한다() {
+        // given
+        UUID commentId = UUID.randomUUID();
+        UUID requestUserId = UUID.randomUUID();
+
+        Comment comment = mock(Comment.class);
+        User requestUser = mock(User.class);
+
+        when(commentRepository.findById(commentId)).thenReturn(Optional.of(comment));
+        when(comment.getDeletedAt()).thenReturn(null);
+        when(userRepository.findById(requestUserId)).thenReturn(Optional.of(requestUser));
+        when(commentLikeRepository.existsByComment_IdAndLikedBy_Id(commentId, requestUserId))
+                .thenReturn(false);
+        when(commentLikeRepository.saveAndFlush(any(CommentLike.class)))
+                .thenThrow(new DataIntegrityViolationException("duplicate"));
+
+        // when
+        BusinessException exception = catchThrowableOfType(
+                BusinessException.class, () -> commentService.like(commentId, requestUserId)
+        );
+
+        // then
+        assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.COMMENT_LIKE_ALREADY_EXISTS);
+    }
+
 }

@@ -5,11 +5,15 @@ import com.project.monu.domain.notification.entity.NotificationResourceType;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface NotificationRepository extends JpaRepository<Notification, UUID> {
 
-    List<Notification> findByUserIdAndConfirmedFalseOrderByCreatedAtDesc(UUID userId);
+    List<Notification> findByUserIdAndConfirmedFalseOrderByCreatedAtDesc(
+            UUID userId,
+            Pageable pageable
+    );
 
     List<Notification> findByUserIdAndConfirmedFalse(UUID userId);
 
@@ -20,6 +24,5 @@ public interface NotificationRepository extends JpaRepository<Notification, UUID
             List<UUID> resourceIds
     );
 
-    // User 물리 삭제를 위한 추가
     void deleteAllByUserId(UUID userId);
 }

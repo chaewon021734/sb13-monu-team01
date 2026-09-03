@@ -59,3 +59,14 @@ naver:
   api:
     client-id: ${NAVER_CLIENT_ID}
     client-secret: ${NAVER_CLIENT_SECRET}
+
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: false
+  health:
+    defaults:
+      enabled: false
+    ping:
+      enabled: true

@@ -3,12 +3,7 @@ package com.project.monu.domain.comment.entity;
 import com.project.monu.domain.article.entity.Article;
 import com.project.monu.domain.users.entity.User;
 import com.project.monu.global.entity.BaseEntity;
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.FetchType;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
@@ -17,7 +12,13 @@ import java.time.Instant;
 @Entity
 @Getter
 @NoArgsConstructor
-@Table(name = "comment")
+@Table(
+        name = "comment",
+        indexes = {
+                @Index(name = "idx_comment_article_created", columnList = "article_id, created_at"),
+                @Index(name = "idx_comment_user", columnList = "user_id")
+        }
+)
 public class Comment extends BaseEntity {
 
     @ManyToOne(fetch = FetchType.LAZY)
